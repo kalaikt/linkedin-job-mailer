@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>LinkedIn Job Mailer settings</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body>
+  <main class="page">
+    <h1>LinkedIn Job Mailer</h1>
+    <p>Save the model and mailbox you want to use. The extension reads the LinkedIn tab you already signed in to. It does not ask for your LinkedIn password.</p>
+
+    <form id="settings" autocomplete="off">
+      <section class="panel">
+        <h2>Model</h2>
+        <label>Provider
+          <select id="provider" name="provider">
+            <option value="openai">OpenAI</option>
+            <option value="xai">xAI Grok</option>
+            <option value="groq">Groq</option>
+            <option value="openrouter">OpenRouter</option>
+            <option value="cursor">Cursor</option>
+            <option value="custom">Custom OpenAI-compatible</option>
+          </select>
+        </label>
+        <div class="row">
+          <label>Model name
+            <input id="model" name="model" autocomplete="off" required>
+          </label>
+          <label>API base URL
+            <input id="apiBase" name="apiBase" type="url" inputmode="url" placeholder="https://api.x.ai/v1" required>
+          </label>
+        </div>
+        <label>API key
+          <input id="apiKey" name="apiKey" type="password" autocomplete="off">
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Mailbox</h2>
+        <p>These settings stay in this browser. Save them before you test the connection. Sending uses a mail program on this computer, because a browser cannot open an SMTP port.</p>
+        <div class="row">
+          <label>SMTP host
+            <input id="smtpHost" name="smtpHost" placeholder="smtp.example.com" autocomplete="off">
+          </label>
+          <label>Port
+            <input id="smtpPort" name="smtpPort" type="number" min="1" max="65535" value="587">
+          </label>
+        </div>
+        <label>Encryption
+          <select id="smtpSecure" name="smtpSecure">
+            <option value="false">STARTTLS (usually port 587)</option>
+            <option value="true">SSL (usually port 465)</option>
+          </select>
+        </label>
+        <div class="row">
+          <label>SMTP username
+            <input id="smtpUser" name="mail-username" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="field">
+            <label for="smtpPass">SMTP password</label>
+            <div class="secret-field">
+              <input id="smtpPass" name="mail-app-password" type="password" autocomplete="new-password" spellcheck="false">
+              <button id="toggleSmtpPass" type="button" aria-controls="smtpPass" aria-pressed="false" aria-label="Show password">
+                <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <svg class="eye-shut" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 4l18 16"></path>
+                  <path d="M9.9 5.2A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3.2 3.8"></path>
+                  <path d="M6.1 7.4A18.4 18.4 0 0 0 2 12s3.5 7 10 7a10.6 10.6 0 0 0 4.3-.9"></path>
+                  <path d="M10.6 10.6a3 3 0 0 0 4.2 4.2"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <label>From name
+            <input id="fromName" name="fromName" autocomplete="name">
+          </label>
+          <label>From email
+            <input id="fromEmail" name="fromEmail" type="email" autocomplete="off">
+          </label>
+        </div>
+        <div class="row">
+          <label>Relay URL
+            <input id="relayUrl" name="relayUrl" type="url" value="http://127.0.0.1:8787">
+          </label>
+          <label>Relay token
+            <input id="relayToken" name="relayToken" type="text" autocomplete="off" spellcheck="false" value="the same token">
+          </label>
+        </div>
+        <p>The relay token can stay as <code>the same token</code>. The mail program on this computer no longer checks it.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Matching and signature</h2>
+        <label>LinkedIn group or jobs URL
+          <input id="groupUrl" name="groupUrl" type="url" placeholder="https://www.linkedin.com/groups/">
+        </label>
+        <label>Keywords, separated by commas
+          <input id="keywords" name="keywords" placeholder="product manager, remote, contract">
+        </label>
+        <label>Your name
+          <input id="senderName" name="senderName" autocomplete="name">
+        </label>
+        <p>Leave this blank to sign the draft with the from name.</p>
+        <label>Short background the draft may use
+          <textarea id="senderBackground" name="senderBackground" placeholder="Two sentences about the work you want to mention."></textarea>
+        </label>
+      </section>
+
+      <div class="actions">
+        <button type="submit">Save</button>
+        <button id="test" class="secondary" type="button">Test mail connection</button>
+      </div>
+      <p id="status" class="status" role="status"></p>
+    </form>
+
+    <section class="panel">
+      <h2>Start the mail relay</h2>
+      <p>In a terminal, from the <code>mail-relay</code> folder:</p>
+      <p><code>npm install</code></p>
+      <p><code>RELAY_TOKEN="the same token" node server.js</code></p>
+      <p>Keep that terminal open while you send. This project folder is inside macOS Public, so leave the API key and SMTP password in the extension only.</p>
+    </section>
+  </main>
+  <script src="defaults.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

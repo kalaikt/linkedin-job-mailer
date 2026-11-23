@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "LinkedIn Job Mailer",
+  "version": "0.1.0",
+  "description": "List matching job posts on the LinkedIn page you have open, then email an address from that post after you approve the draft.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "https://*.linkedin.com/*",
+    "http://127.0.0.1:*/*"
+  ],
+  "optional_host_permissions": ["https://*/*"],
+  "action": {
+    "default_title": "LinkedIn Job Mailer",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*", "https://*.linkedin.com/*"],
+      "js": ["parse.js", "content.js", "panel-host.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["popup.html", "popup.js", "ui.css", "defaults.js", "parse.js"],
+      "matches": ["https://www.linkedin.com/*", "https://*.linkedin.com/*"]
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

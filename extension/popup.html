@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>LinkedIn Job Mailer</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body>
+  <main class="popup">
+    <h1>Job posts on this page</h1>
+    <p>Sign in to LinkedIn yourself, open the group, then scan. The scan scrolls this page to load more posts. Each email waits for your approval.</p>
+    <div class="actions">
+      <button id="scan" type="button">Scan this page</button>
+      <button id="open-group" class="secondary" type="button">Open saved group</button>
+      <button id="settings" class="secondary" type="button">Settings</button>
+    </div>
+    <ul id="posts" class="posts"></ul>
+    <label>Found addresses
+      <select id="recipient-list">
+        <option value="">Select a post to load its addresses</option>
+      </select>
+    </label>
+    <label>Recipient
+      <input id="recipient" type="email" autocomplete="off" spellcheck="false" placeholder="Edit the address before sending">
+    </label>
+    <div class="actions">
+      <button id="draft" type="button" disabled>Draft email</button>
+    </div>
+    <label>Subject
+      <input id="subject" autocomplete="off">
+    </label>
+    <label>Message
+      <textarea id="body"></textarea>
+    </label>
+    <label>Attachment
+      <input id="attachment" type="file">
+    </label>
+    <p id="attachment-name" class="meta"></p>
+    <label class="check">
+      <input id="approved" type="checkbox">
+      <span>I reviewed this email and want to send it to the address above.</span>
+    </label>
+    <button id="send" type="button" disabled>Send this email</button>
+    <p id="status" class="status" role="status"></p>
+  </main>
+  <script src="defaults.js"></script>
+  <script src="parse.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
