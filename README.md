@@ -2,6 +2,12 @@
 
 A Chrome extension that lists job posts on the LinkedIn page you already have open, drafts an email, and sends it from your mailbox after you approve it. You stay signed in to LinkedIn yourself. The extension does not ask for your LinkedIn password.
 
+## Demo
+
+The recording is about one minute. It scans a group, opens a post, drafts the email, attaches a resume, and waits for approval before sending.
+
+[![Demo: scan a post, draft an email, and send it after approval](docs/demo.jpg)](docs/demo.mp4)
+
 ## What you need
 
 - Google Chrome
