@@ -34,7 +34,15 @@
     const data = event.data;
     const frame = document.getElementById(HOST_ID);
     if (!data || data.source !== "job-mailer") return;
-    if (!frame || event.source !== frame.contentWindow) return;
+    if (!frame) return;
+    const fromFrame = event.source === frame.contentWindow;
+    let fromExtension = false;
+    try {
+      fromExtension = event.origin === new URL(chrome.runtime.getURL("/")).origin;
+    } catch (_error) {
+      fromExtension = false;
+    }
+    if (!fromFrame && !fromExtension) return;
     if (data.type === "scanFeedPosts") {
       const scan = globalThis.__jobMailerScan;
       if (!scan) {

@@ -451,81 +451,85 @@
     return rect.width < 40 || rect.height < 12;
   }
 
-  function phrases(message) {
-    return [message && message.title, message && message.needle, message && message.urn]
-      .map((value) => compact(value).slice(0, 42))
-      .filter((value) => value.length >= 12);
+  function clues(message) {
+    const email = compact(message && message.email);
+    const needle = compact(message && message.needle).slice(0, 90);
+    const title = compact(message && message.title).slice(0, 48);
+    const urn = String((message && message.urn) || "");
+    const activity = (urn.match(/\d{10,}/) || [])[0] || "";
+    return { email, needle, title, activity };
+  }
+
+  function haystack(el) {
+    return compact((el.innerText || "") + " " + (el.textContent || "") + " " + (el.innerHTML || "").slice(0, 4000));
+  }
+
+  function matchesClue(el, clue) {
+    if (!el || hidden(el)) return false;
+    const text = haystack(el);
+    if (text.length < 24) return false;
+    if (clue.email && text.includes(clue.email)) return true;
+    if (clue.activity && text.includes(clue.activity)) return true;
+    if (clue.needle.length >= 18 && text.includes(clue.needle)) return true;
+    if (clue.title.length >= 12 && text.includes(clue.title)) return true;
+    return false;
   }
 
   function locate(message) {
+    const clue = clues(message);
     const mark = message && message.mark;
     if (mark) {
-      let stamped = null;
+      const stamped = document.querySelector("[data-job-mailer-post='" + mark + "']");
+      if (stamped && !hidden(stamped)) return stamped;
+      let found = null;
       walk(document.body, (el) => {
-        if (!stamped && el.dataset && el.dataset.jobMailerPost === mark && !hidden(el)) stamped = el;
+        if (!found && el.dataset && el.dataset.jobMailerPost === mark && !hidden(el)) found = el;
       });
-      if (stamped) return stamped;
+      if (found) return found;
     }
-    const wants = phrases(message).sort((left, right) => right.length - left.length);
-    for (const phrase of wants) {
-      let best = null;
-      let bestSize = Infinity;
-      walk(document.body, (el) => {
-        const tag = el.tagName;
-        if (tag !== "DIV" && tag !== "ARTICLE" && tag !== "LI" && tag !== "SECTION" && tag !== "P") return;
-        if (hidden(el)) return;
-        const haystack = compact((el.innerText || "") + " " + (el.textContent || ""));
-        if (!haystack.includes(phrase)) return;
-        const size = textSize(el);
-        if (size < 40 || size >= bestSize) return;
-        best = el;
-        bestSize = size;
-      });
-      if (best) return best;
-    }
-    return null;
-  }
-
-  function scrollParents(el) {
-    const seen = new Set();
-    let node = el;
-    while (node && node !== document.body) {
-      const parent = node.parentElement || (node.getRootNode && node.getRootNode().host);
-      if (!parent || seen.has(parent)) break;
-      seen.add(parent);
-      const style = getComputedStyle(parent);
-      if (/(auto|scroll|overlay)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight + 40) {
-        const parentRect = parent.getBoundingClientRect();
-        const rect = el.getBoundingClientRect();
-        parent.scrollTop += rect.top - parentRect.top - Math.max(24, (parent.clientHeight - Math.min(rect.height, parent.clientHeight)) / 3);
+    if (clue.activity) {
+      const selector = "[data-urn*='" + clue.activity + "'], [data-id*='" + clue.activity + "'], a[href*='" + clue.activity + "']";
+      const nodes = document.querySelectorAll(selector);
+      for (const node of nodes) {
+        if (!hidden(node)) return node;
       }
-      node = parent;
     }
-    const rect = el.getBoundingClientRect();
-    window.scrollBy(0, rect.top - Math.max(80, (window.innerHeight - Math.min(rect.height, window.innerHeight - 100)) / 2));
+    let best = null;
+    let bestSize = Infinity;
+    walk(document.body, (el) => {
+      const tag = el.tagName;
+      if (tag !== "DIV" && tag !== "ARTICLE" && tag !== "LI" && tag !== "SECTION" && tag !== "P") return;
+      if (!matchesClue(el, clue)) return;
+      const size = textSize(el);
+      if (size < 40 || size >= bestSize) return;
+      best = el;
+      bestSize = size;
+    });
+    return best;
   }
 
   function reveal(el) {
-    el.scrollIntoView({ block: "center", inline: "nearest" });
-    const previous = el.style.outline;
-    const previousOffset = el.style.outlineOffset;
-    el.style.outline = "3px solid #0f5f5c";
-    el.style.outlineOffset = "4px";
-    setTimeout(() => {
-      el.style.outline = previous;
-      el.style.outlineOffset = previousOffset;
-    }, 2600);
-  }
-
-  function feedScroller() {
-    const feed = feedRoot();
-    let node = feed;
-    while (node && node !== document.documentElement) {
-      const style = getComputedStyle(node);
-      if (/(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 80) return node;
-      node = node.parentElement;
+    const card = postRoot(el);
+    const target = card.getBoundingClientRect().height > 1600 ? el : card;
+    target.scrollIntoView({ block: "center", inline: "nearest" });
+    const previous = document.querySelector("[data-job-mailer-highlight='1']");
+    if (previous && previous !== target) {
+      previous.style.removeProperty("outline");
+      previous.style.removeProperty("outline-offset");
+      previous.style.removeProperty("box-shadow");
+      previous.removeAttribute("data-job-mailer-highlight");
     }
-    return document.scrollingElement || document.documentElement;
+    target.setAttribute("data-job-mailer-highlight", "1");
+    target.style.setProperty("outline", "4px solid #0f5f5c", "important");
+    target.style.setProperty("outline-offset", "4px", "important");
+    target.style.setProperty("box-shadow", "0 0 0 6px rgba(15, 95, 92, 0.35)", "important");
+    setTimeout(() => {
+      if (target.getAttribute("data-job-mailer-highlight") !== "1") return;
+      target.style.removeProperty("outline");
+      target.style.removeProperty("outline-offset");
+      target.style.removeProperty("box-shadow");
+      target.removeAttribute("data-job-mailer-highlight");
+    }, 4000);
   }
 
   async function showPost(message) {
@@ -535,28 +539,21 @@
       reveal(el);
       return { ok: true };
     }
-    const scroller = feedScroller();
-    const page = document.scrollingElement || document.documentElement;
-    scroller.scrollTop = 0;
-    page.scrollTop = 0;
-    await sleep(350);
+    await sleep(200);
+    const root = feedRoot();
     let idle = 0;
-    for (let step = 0; step < 30; step += 1) {
+    for (let step = 0; step < 24; step += 1) {
       if (generation !== showGeneration) return { ok: false, error: "Opened a different post." };
       el = locate(message);
       if (el) {
         reveal(el);
         return { ok: true };
       }
-      const beforeFeed = scroller.scrollTop;
-      const beforePage = page.scrollTop;
-      const distance = Math.max(480, Math.floor(window.innerHeight * 0.7));
-      scroller.scrollTop += distance;
-      if (page !== scroller) page.scrollTop += distance;
-      await sleep(550);
-      if (scroller.scrollTop <= beforeFeed + 12 && page.scrollTop <= beforePage + 12) idle += 1;
+      const beforeY = window.scrollY;
+      await scrollForMore(root);
+      if (window.scrollY <= beforeY + 40) idle += 1;
       else idle = 0;
-      if (idle >= 3) break;
+      if (idle >= 2) break;
     }
     return { ok: false, error: "That post is not on this page anymore. Scan again." };
   }

@@ -284,23 +284,35 @@ function revealPost(post) {
     source: "job-mailer",
     type: "showFeedPost",
     title: post.title || "",
-    needle: post.needle || String(post.text || "").replace(/\s+/g, " ").trim().slice(0, 110),
+    needle: post.needle || String(post.text || "").replace(/\s+/g, " ").trim().slice(0, 180),
     urn: post.urn || "",
-    mark: post.mark || ""
+    mark: post.mark || "",
+    email: (post.emails && post.emails[0]) || ""
   };
   setStatus("Opening that post on the page…", "busy");
+  const showResult = (response) => {
+    if (!response?.ok) setStatus(response?.error || "Could not show that post.", "error");
+    else setStatus("That post is outlined on the page.", "ok");
+  };
   if (window.parent && window.parent !== window) {
-    const onResult = (event) => {
-      if (!event.data || event.data.source !== "job-mailer" || event.data.type !== "showFeedPostResult") return;
-      window.removeEventListener("message", onResult);
-      if (!event.data.ok) setStatus(event.data.error || "Could not show that post.", "error");
-      else setStatus("That post is outlined on the page.", "ok");
-    };
-    window.addEventListener("message", onResult);
-    window.parent.postMessage(payload, "*");
+    revealOnPage(payload, showResult);
     return;
   }
-  setStatus("Scan this page, then select the post again.", "error");
+  runtimeMessage(payload).then(showResult).catch((error) => showResult({ ok: false, error: error.message }));
+}
+
+function revealOnPage(payload, showResult) {
+  if (!window.parent || window.parent === window) {
+    showResult({ ok: false, error: "Scan this page, then select the post again." });
+    return;
+  }
+  const onResult = (event) => {
+    if (!event.data || event.data.source !== "job-mailer" || event.data.type !== "showFeedPostResult") return;
+    window.removeEventListener("message", onResult);
+    showResult(event.data);
+  };
+  window.addEventListener("message", onResult);
+  window.parent.postMessage(payload, "*");
 }
 
 function fillRecipientList(emails) {

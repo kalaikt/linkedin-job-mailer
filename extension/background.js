@@ -33,7 +33,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ? scanPage(sender)
           : message.type === "openUrl"
             ? openLinkedIn(message.url)
-            : null;
+            : message.type === "showFeedPost"
+              ? showOnPage(sender, message)
+              : null;
   if (!task) return;
   task.then(sendResponse).catch((error) => {
     sendResponse({ ok: false, error: error instanceof Error ? error.message : "Request failed" });
@@ -52,6 +54,24 @@ async function scanPage(sender) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["parse.js", "content.js"] });
   const response = await chrome.tabs.sendMessage(tabId, { type: "scanFeedPosts" });
   if (!response?.ok) throw new Error(response?.error || "Scan failed.");
+  return response;
+}
+
+async function showOnPage(sender, message) {
+  const tabId = sender.tab && sender.tab.id;
+  if (!tabId || !isLinkedInTab(sender.tab.url)) throw new Error("Open a LinkedIn page first.");
+  if (chrome.scripting) {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["parse.js", "content.js"] });
+  }
+  const response = await chrome.tabs.sendMessage(tabId, {
+    type: "showFeedPost",
+    title: message.title || "",
+    needle: message.needle || "",
+    urn: message.urn || "",
+    mark: message.mark || "",
+    email: message.email || ""
+  });
+  if (!response?.ok) throw new Error(response?.error || "Could not show that post.");
   return response;
 }
 
