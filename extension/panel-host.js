@@ -7,12 +7,9 @@
     frame.style.width = width + "px";
   }
 
-  function toggle() {
+  function ensurePanel() {
     const existing = document.getElementById(HOST_ID);
-    if (existing) {
-      existing.remove();
-      return;
-    }
+    if (existing) return existing;
     const frame = document.createElement("iframe");
     frame.id = HOST_ID;
     frame.title = "LinkedIn Job Mailer";
@@ -28,6 +25,33 @@
     frame.style.background = "#f3efe6";
     place(frame);
     document.documentElement.appendChild(frame);
+    frame.addEventListener("load", () => {
+      frame.dataset.ready = "1";
+    });
+    return frame;
+  }
+
+  function toggle() {
+    const existing = document.getElementById(HOST_ID);
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    ensurePanel();
+  }
+
+  let pendingPost = null;
+
+  function deliverMail(frame) {
+    if (!pendingPost || !frame || !frame.contentWindow) return;
+    frame.contentWindow.postMessage({ source: "job-mailer", type: "mailThisPost", post: pendingPost }, "*");
+  }
+
+  function openForMail(post) {
+    pendingPost = post;
+    const frame = ensurePanel();
+    if (frame.dataset.ready === "1") deliverMail(frame);
+    else frame.addEventListener("load", () => deliverMail(frame), { once: true });
   }
 
   function onShowPost(event) {
@@ -43,6 +67,10 @@
       fromExtension = false;
     }
     if (!fromFrame && !fromExtension) return;
+    if (data.type === "mailReady") {
+      deliverMail(frame);
+      return;
+    }
     if (data.type === "scanFeedPosts") {
       const scan = globalThis.__jobMailerScan;
       if (!scan) {
@@ -88,6 +116,13 @@
   }
 
   globalThis.__jobMailerToggle = toggle;
+  globalThis.__jobMailerOpen = openForMail;
+  if (!globalThis.__jobMailerMailBound) {
+    globalThis.__jobMailerMailBound = true;
+    window.addEventListener("job-mailer-mail", (event) => {
+      if (event.detail) openForMail(event.detail);
+    });
+  }
   if (typeof globalThis.__jobMailerShowBridge === "function") {
     window.removeEventListener("message", globalThis.__jobMailerShowBridge);
   }

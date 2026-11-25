@@ -138,7 +138,7 @@ async function draftEmail(message) {
   if (!settings.apiBase || (!settings.model && !isCursorHost(settings.apiBase))) throw new Error("Choose a model in Settings.");
   const to = String(message.to || "").trim().toLowerCase();
   const text = String(message.text || "").trim();
-  if (!text) throw new Error("Select a post first.");
+  if (!text) throw new Error("That post had no readable text. Open it with …more, then try the envelope again.");
   if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24}$/i.test(to)) {
     throw new Error("Enter one email address, like name@company.com.");
   }
@@ -153,7 +153,11 @@ async function draftEmail(message) {
     recipient: to,
     jobPost: text.slice(0, 4000)
   });
-  if (isCursorHost(settings.apiBase)) return cursorDraft(settings, instructions + "\n\n" + userContent);
+  if (isCursorHost(settings.apiBase)) {
+    const chat = await cursorChat(settings, instructions, userContent);
+    if (chat) return { ok: true, ...parseDraft(chat) };
+    return cursorDraft(settings, instructions + "\n\n" + userContent);
+  }
 
   const endpoint = chatEndpoint(settings.apiBase);
   const response = await fetch(endpoint, {
@@ -195,29 +199,44 @@ function apiDetail(payload, response) {
   return (typeof payload.error === "string" ? payload.error : payload.error?.message) || payload.message || response.statusText || "The model request failed.";
 }
 
+async function cursorChat(settings, instructions, userContent) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const response = await fetch("https://api.cursor.com/v1/chat/completions", {
+      method: "POST",
+      headers: cursorHeaders(settings.apiKey, false),
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: settings.model && settings.model !== "default" ? settings.model : "composer-2.5",
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: instructions },
+          { role: "user", content: userContent }
+        ]
+      })
+    });
+    if (!response.ok) return "";
+    const payload = await response.json().catch(() => ({}));
+    return payload.choices?.[0]?.message?.content || "";
+  } catch (_error) {
+    return "";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function cursorDraft(settings, prompt) {
   const origin = "https://api.cursor.com";
   let headers = cursorHeaders(settings.apiKey, false);
-  let response = await fetch(origin + "/v1/agents", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      name: "Job mail draft",
-      mode: "plan",
-      prompt: { text: "Reply with only the JSON object. Do not edit files or call tools.\n\n" + prompt }
-    })
+  const body = JSON.stringify({
+    name: "Job mail draft",
+    prompt: { text: "Reply with only one JSON object with keys subject and body. Do not use tools.\n\n" + prompt.slice(0, 1800) }
   });
+  let response = await fetch(origin + "/v1/agents", { method: "POST", headers, body });
   if (response.status === 401) {
     headers = cursorHeaders(settings.apiKey, true);
-    response = await fetch(origin + "/v1/agents", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        name: "Job mail draft",
-        mode: "plan",
-        prompt: { text: "Reply with only the JSON object. Do not edit files or call tools.\n\n" + prompt }
-      })
-    });
+    response = await fetch(origin + "/v1/agents", { method: "POST", headers, body });
   }
   const created = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(apiDetail(created, response));
@@ -225,8 +244,8 @@ async function cursorDraft(settings, prompt) {
   const runId = created.run?.id || created.agent?.latestRunId;
   if (!agentId || !runId) throw new Error("Cursor did not start a draft.");
   try {
-    for (let attempt = 0; attempt < 24; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+    for (let attempt = 0; attempt < 45; attempt += 1) {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 700));
       const runResponse = await fetch(origin + "/v1/agents/" + agentId + "/runs/" + runId, { headers });
       const run = await runResponse.json().catch(() => ({}));
       if (!runResponse.ok) throw new Error(apiDetail(run, runResponse));

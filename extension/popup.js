@@ -14,6 +14,18 @@ const statusEl = document.querySelector("#status");
 let settings = { ...DEFAULTS };
 let tab = null;
 let selected = null;
+let settingsReady = false;
+let pendingMail = null;
+
+window.addEventListener("message", (event) => {
+  const data = event.data;
+  if (!data || data.source !== "job-mailer" || data.type !== "mailThisPost" || !data.post) return;
+  const fromParent = event.source === window.parent;
+  const fromLinkedIn = /^https:\/\/([^/]+\.)?linkedin\.com$/.test(event.origin || "");
+  if (!fromParent && !fromLinkedIn) return;
+  pendingMail = data.post;
+  if (settingsReady) applyMailedPost(pendingMail);
+});
 
 document.querySelector("#settings").addEventListener("click", () => {
   if (!globalThis.chrome?.runtime?.openOptionsPage) {
@@ -40,54 +52,7 @@ scanButton.addEventListener("click", () => {
 });
 
 draftButton.addEventListener("click", () => {
-  if (!selected) {
-    setStatus("Select a post first.", "error");
-    return;
-  }
-  const to = cleanRecipient(recipientEl.value);
-  recipientEl.value = to;
-  if (!validEmail(to)) {
-    setStatus("Edit the recipient so it is one address, like name@company.com.", "error");
-    return;
-  }
-  if (!settings.apiKey || !settings.apiBase) {
-    setStatus("Add a model and API key in Settings.", "error");
-    return;
-  }
-  let pattern;
-  try {
-    const url = new URL(settings.apiBase);
-    if (url.protocol !== "https:") throw new Error("bad protocol");
-    pattern = url.origin + "/*";
-  } catch (_error) {
-    setStatus("The model URL in Settings must start with https://", "error");
-    return;
-  }
-  setStatus("Writing a draft…", "busy");
-  draftButton.disabled = true;
-  chrome.permissions.request({ origins: [pattern] }, (granted) => {
-    if (!granted) {
-      draftButton.disabled = !validEmail(recipientEl.value);
-      setStatus("Allow access to the model host, then draft again.", "error");
-      return;
-    }
-    chrome.runtime.sendMessage({ type: "draft", to, text: selected.text }, (response) => {
-      draftButton.disabled = !validEmail(recipientEl.value);
-      if (chrome.runtime.lastError) {
-        setStatus(chrome.runtime.lastError.message, "error");
-        return;
-      }
-      if (!response?.ok) {
-        setStatus(response?.error || "Draft failed.", "error");
-        return;
-      }
-      subjectEl.value = response.subject || "";
-      bodyEl.value = response.body || "";
-      approvedEl.checked = false;
-      refreshSend();
-      setStatus("Review the draft, then send it.", "ok");
-    });
-  });
+  draftSelected(true);
 });
 
 const attachmentInput = document.querySelector("#attachment");
@@ -175,6 +140,11 @@ async function init() {
     setStatus("Ready to scan this page.");
   }
   refreshSend();
+  settingsReady = true;
+  if (pendingMail) applyMailedPost(pendingMail);
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ source: "job-mailer", type: "mailReady" }, "*");
+  }
 }
 
 function pageMessage(payload) {
@@ -241,6 +211,7 @@ function renderPosts(posts) {
     const item = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
+    button.className = "post-open";
     const role = parse.roleFrom(post.text);
     const location = parse.locationFrom(post.text);
     const title = document.createElement("div");
@@ -257,16 +228,30 @@ function renderPosts(posts) {
     item.append(button);
     postsEl.append(item);
   }
-  const buttons = [...postsEl.querySelectorAll("button")];
+  const buttons = [...postsEl.querySelectorAll(".post-open")];
   const preferred = posts.findIndex((post) => post.keywordMatch !== false && post.emails.length > 0);
   const withEmail = posts.findIndex((post) => post.emails.length > 0);
   const index = preferred >= 0 ? preferred : (withEmail >= 0 ? withEmail : 0);
   if (buttons[index]) selectPost(posts[index], buttons[index], false);
 }
 
+function applyMailedPost(post) {
+  selected = post;
+  for (const other of postsEl.querySelectorAll(".post-open")) other.setAttribute("aria-pressed", "false");
+  fillRecipientList(post.emails || []);
+  recipientEl.value = (post.emails && post.emails[0]) || "";
+  draftButton.disabled = !validEmail(recipientEl.value);
+  approvedEl.checked = false;
+  refreshSend();
+  recipientEl.scrollIntoView({ block: "center" });
+  const kept = attachmentInput.files && attachmentInput.files[0];
+  if (kept) attachmentName.textContent = kept.name;
+  draftSelected();
+}
+
 function selectPost(post, button, reveal) {
   selected = post;
-  for (const other of postsEl.querySelectorAll("button")) other.setAttribute("aria-pressed", "false");
+  for (const other of postsEl.querySelectorAll(".post-open")) other.setAttribute("aria-pressed", "false");
   button.setAttribute("aria-pressed", "true");
   button.scrollIntoView({ block: "nearest" });
   fillRecipientList(post.emails);
@@ -277,6 +262,87 @@ function selectPost(post, button, reveal) {
   approvedEl.checked = false;
   refreshSend();
   if (reveal) revealPost(post);
+}
+
+function modelPattern() {
+  const url = new URL(settings.apiBase);
+  if (url.protocol !== "https:") throw new Error("bad protocol");
+  return url.origin + "/*";
+}
+
+function sendDraft(to) {
+  const file = attachmentInput.files && attachmentInput.files[0];
+  const cursor = /api\.cursor\.com|cursor\.com|\.cursor\.sh/i.test(String(settings.apiBase || ""));
+  const writing = cursor ? "Writing the draft with Cursor. This usually takes up to a minute." : "Writing a draft…";
+  setStatus(file ? writing + " " + file.name + " stays attached." : writing, "busy");
+  draftButton.disabled = true;
+  chrome.runtime.sendMessage({ type: "draft", to, text: selected.text }, (response) => {
+    draftButton.disabled = !validEmail(recipientEl.value);
+    if (chrome.runtime.lastError) {
+      setStatus(chrome.runtime.lastError.message, "error");
+      return;
+    }
+    if (!response?.ok) {
+      setStatus(response?.error || "Draft failed.", "error");
+      return;
+    }
+    subjectEl.value = response.subject || "";
+    bodyEl.value = response.body || "";
+    approvedEl.checked = false;
+    refreshSend();
+    subjectEl.scrollIntoView({ block: "nearest" });
+    const kept = attachmentInput.files && attachmentInput.files[0];
+    setStatus(kept ? "Review the draft. " + kept.name + " is still attached. Choose another file to replace it." : "Review the draft, then send it. You can attach a file.", "ok");
+  });
+}
+
+function draftSelected(fromClick) {
+  if (!selected) {
+    setStatus("Select a post first.", "error");
+    return;
+  }
+  const to = cleanRecipient(recipientEl.value);
+  recipientEl.value = to;
+  if (!validEmail(to)) {
+    setStatus("Edit the recipient so it is one address, like name@company.com.", "error");
+    return;
+  }
+  if (!settings.apiKey || !settings.apiBase) {
+    setStatus("Add a model and API key in Settings.", "error");
+    return;
+  }
+  let pattern;
+  try {
+    pattern = modelPattern();
+  } catch (_error) {
+    setStatus("The model URL in Settings must start with https://", "error");
+    return;
+  }
+  chrome.permissions.contains({ origins: [pattern] }, (allowed) => {
+    if (chrome.runtime.lastError) {
+      setStatus(chrome.runtime.lastError.message, "error");
+      return;
+    }
+    if (allowed) {
+      sendDraft(to);
+      return;
+    }
+    if (!fromClick) {
+      setStatus("Click Draft email once to allow the model, then use the envelope again.", "error");
+      return;
+    }
+    chrome.permissions.request({ origins: [pattern] }, (granted) => {
+      if (chrome.runtime.lastError) {
+        setStatus(chrome.runtime.lastError.message, "error");
+        return;
+      }
+      if (!granted) {
+        setStatus("Allow access to the model host, then draft again.", "error");
+        return;
+      }
+      sendDraft(to);
+    });
+  });
 }
 
 function revealPost(post) {

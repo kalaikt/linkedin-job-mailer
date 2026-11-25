@@ -221,16 +221,26 @@
     return rect.height;
   }
 
+  function looksLikePost(el) {
+    const urn = (el.getAttribute && (el.getAttribute("data-urn") || el.getAttribute("data-id"))) || "";
+    const cls = String(el.className || "");
+    const activity = /activity|ugcPost|groupPost/i.test(urn);
+    return activity
+      || /feed-shared-update|occludable-update|search-result|entity-result|reusable-search__result|groups-post/.test(cls)
+      || el.tagName === "ARTICLE"
+      || (el.tagName === "LI" && activity);
+  }
+
   function postRoot(el) {
     let current = el;
     let best = el;
     while (current && current.nodeType === 1) {
       if (current === document.body || isFeedList(current)) break;
-      const urn = (current.getAttribute && (current.getAttribute("data-urn") || current.getAttribute("data-id"))) || "";
-      const cls = String(current.className || "");
-      const activity = /activity|ugcPost|groupPost/i.test(urn);
-      const card = /feed-shared-update|occludable-update/.test(cls) || (current.tagName === "ARTICLE" && activity);
-      if (activity || card) best = current;
+      if (looksLikePost(current)) {
+        const rect = current.getBoundingClientRect();
+        if (rect.width > 200 && rect.height > 48 && rect.height < 1400) return current;
+        best = current;
+      }
       const parent = current.parentElement || (current.getRootNode && current.getRootNode().host);
       if (!parent || parent === current) break;
       current = parent;
@@ -438,6 +448,7 @@
       return finish(found);
     } finally {
       window.scrollTo(startX, startY);
+      if (globalThis.__jobMailerDecorate) globalThis.__jobMailerDecorate();
     }
   }
 
@@ -510,8 +521,22 @@
 
   function reveal(el) {
     const card = postRoot(el);
-    const target = card.getBoundingClientRect().height > 1600 ? el : card;
+    const target = card.getBoundingClientRect().height > 1400 ? el : card;
     target.scrollIntoView({ block: "center", inline: "nearest" });
+    let node = target.parentElement;
+    while (node && node !== document.body) {
+      const style = getComputedStyle(node);
+      if (/(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 40) {
+        const parentRect = node.getBoundingClientRect();
+        const box = target.getBoundingClientRect();
+        node.scrollTop += box.top - parentRect.top - Math.max(72, (node.clientHeight - Math.min(box.height, node.clientHeight)) / 3);
+      }
+      node = node.parentElement;
+    }
+    const box = target.getBoundingClientRect();
+    if (box.top < 70 || box.bottom > window.innerHeight - 16) {
+      window.scrollBy(0, box.top - 96);
+    }
     const previous = document.querySelector("[data-job-mailer-highlight='1']");
     if (previous && previous !== target) {
       previous.style.removeProperty("outline");
@@ -556,6 +581,208 @@
       if (idle >= 2) break;
     }
     return { ok: false, error: "That post is not on this page anymore. Scan again." };
+  }
+
+  function isControl(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const tag = el.tagName;
+    const role = el.getAttribute && el.getAttribute("role");
+    return tag === "BUTTON" || role === "button";
+  }
+
+  function isOverflowMenu(el) {
+    if (!isControl(el) || el.classList.contains("job-mailer-send")) return false;
+    if (el.closest && el.closest("#global-nav, nav, header, aside, #job-mailer-panel")) return false;
+    const label = ((el.getAttribute && el.getAttribute("aria-label")) || "").toLowerCase();
+    if (/comment|reply/.test(label)) return false;
+    const cls = String(el.className || "").toLowerCase();
+    if (/control menu|more actions|options for this|open menu/.test(label)) return true;
+    const box = el.getBoundingClientRect();
+    if ((cls.includes("control-menu") || cls.includes("feed-shared-control-menu")) && box.width > 0 && box.width <= 64 && box.height <= 64) return true;
+    return false;
+  }
+
+  function samePost(left, right) {
+    const a = postRoot(left);
+    const b = postRoot(right);
+    return a === b || a.contains(right) || b.contains(left);
+  }
+
+  function preferMenu(candidate, current) {
+    const labelOf = (el) => ((el.getAttribute && el.getAttribute("aria-label")) || "").toLowerCase();
+    const labeled = (el) => /control menu|more actions|open menu/.test(labelOf(el));
+    if (labeled(candidate) !== labeled(current)) return labeled(candidate);
+    const candidateBox = candidate.getBoundingClientRect();
+    const currentBox = current.getBoundingClientRect();
+    if (Math.abs(candidateBox.width - currentBox.width) > 8) return candidateBox.width < currentBox.width;
+    return candidateBox.right > currentBox.right;
+  }
+
+  function oneMenuEach(menus) {
+    const outer = menus.filter((menu) => !menus.some((other) => other !== menu && other.contains(menu)));
+    const kept = [];
+    for (const menu of outer) {
+      const index = kept.findIndex((other) => samePost(other, menu));
+      if (index < 0) kept.push(menu);
+      else if (preferMenu(menu, kept[index])) kept[index] = menu;
+    }
+    return kept;
+  }
+
+  function clips(el) {
+    const style = getComputedStyle(el);
+    return /(hidden|clip|auto|scroll)/.test(style.overflowY) || /(hidden|clip)/.test(style.overflow);
+  }
+
+  function mailAnchor(menu) {
+    let node = menu.parentElement;
+    let fallback = node;
+    while (node && node !== document.body && !isFeedList(node)) {
+      const box = node.getBoundingClientRect();
+      if (box.width < 16 || box.height < 16 || box.height > 1100 || box.width > window.innerWidth - 4) break;
+      fallback = node;
+      const menuBox = menu.getBoundingClientRect();
+      if (!clips(node) && box.height + 8 >= menuBox.height && box.width + 8 >= menuBox.width) return node;
+      if (box.width > 240 && box.height > 70) return node;
+      node = node.parentElement || (node.getRootNode && node.getRootNode().host);
+    }
+    return fallback || menu.parentElement;
+  }
+
+  function findOverflow(card) {
+    const cardRect = card.getBoundingClientRect();
+    if (cardRect.width < 200 || cardRect.height < 40) return null;
+    let labeled = null;
+    let best = null;
+    let bestRight = Infinity;
+    walk(card, (el) => {
+      if (!isControl(el) || el.classList.contains("job-mailer-send")) return;
+      const label = ((el.getAttribute && el.getAttribute("aria-label")) || "").toLowerCase();
+      const text = (el.innerText || "").replace(/\s+/g, " ").trim();
+      if (/comment|reply/.test(label)) return;
+      if (/open control menu|control menu for post/.test(label) && !/comment/.test(label)) {
+        labeled = el;
+        return;
+      }
+      if (/^follow\b/i.test(text) || /^follow\b/i.test(label)) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 16 || rect.width > 56 || rect.height < 16 || rect.height > 56) return;
+      const top = rect.top - cardRect.top;
+      const right = cardRect.right - rect.right;
+      if (top < -4 || top > 88 || right < -4 || right > 56) return;
+      if (right < bestRight) {
+        best = el;
+        bestRight = right;
+      }
+    });
+    return labeled || best;
+  }
+
+  async function mailThisPost(from) {
+    const card = postRoot(from);
+    walk(card, (el) => {
+      if (isMoreButton(el)) press(el);
+    });
+    await sleep(350);
+    const parse = globalThis.JobMailerParse;
+    if (!parse) return;
+    const text = renderedText(card).slice(0, 8000);
+    const post = {
+      title: parse.titleFrom(text),
+      text,
+      emails: emailsFor(card, parse),
+      urn: urnFor(card),
+      needle: needleFrom(card),
+      mark: stamp(card)
+    };
+    reveal(card);
+    if (globalThis.__jobMailerOpen) globalThis.__jobMailerOpen(post);
+    else window.dispatchEvent(new CustomEvent("job-mailer-mail", { detail: post }));
+  }
+
+  function placeMail(menu) {
+    const post = postRoot(menu);
+    const postBox = post && post !== menu ? post.getBoundingClientRect() : null;
+    const card = postBox && postBox.width > 240 && postBox.height > 60 && postBox.height < 1400 ? post : mailAnchor(menu);
+    if (!card) return;
+    const scope = post && post.querySelectorAll ? post : card;
+    const existing = [...scope.querySelectorAll(".job-mailer-send")];
+    let button = existing.find((extra) => extra.parentElement === card) || null;
+    for (const extra of existing) {
+      if (extra !== button) extra.remove();
+    }
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.className = "job-mailer-send";
+      button.setAttribute("aria-label", "Draft email for this post");
+      button.title = "Draft email for this post";
+      button.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="#fffdf8" stroke-width="1.8"></rect><path d="M3 7l9 7 9-7" fill="none" stroke="#fffdf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+      const onClick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === "function") event.stopImmediatePropagation();
+        if (event.type === "click") mailThisPost(menu);
+      };
+      button.addEventListener("pointerdown", onClick, true);
+      button.addEventListener("mousedown", onClick, true);
+      button.addEventListener("click", onClick, true);
+      if (getComputedStyle(card).position === "static") card.style.position = "relative";
+      card.appendChild(button);
+    }
+    const cardRect = card.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    const size = 32;
+    button.style.cssText = "position:absolute;display:inline-flex;align-items:center;justify-content:center;width:" + size + "px;height:" + size + "px;margin:0;padding:0;border:0;border-radius:50%;background:#0f5f5c;cursor:pointer;z-index:30;pointer-events:auto;";
+    button.style.top = (menuRect.bottom - cardRect.top + 6) + "px";
+    button.style.left = (menuRect.left - cardRect.left + (menuRect.width - size) / 2) + "px";
+  }
+
+  function decorateMenus() {
+    const root = feedRoot();
+    const menus = [];
+    const seen = new Set();
+    const add = (menu) => {
+      if (!menu || seen.has(menu)) return;
+      seen.add(menu);
+      menus.push(menu);
+    };
+    walk(root, (el) => {
+      if (isOverflowMenu(el)) add(el);
+    });
+    if (menus.length === 0) {
+      const blocks = [];
+      walk(root, (el) => {
+        const cls = String(el.className || "");
+        if (el.tagName === "ARTICLE" || el.tagName === "LI" || /search-result|entity-result|reusable-search__result|feed-shared-update|occludable-update|groups-post/.test(cls)) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 240 && rect.height > 80) blocks.push(el);
+        }
+      });
+      const leaves = blocks.filter((el) => !blocks.some((other) => other !== el && el.contains(other)));
+      for (const block of leaves) add(findOverflow(block));
+    }
+    for (const menu of oneMenuEach(menus)) {
+      try {
+        placeMail(menu);
+      } catch (_error) {
+        /* keep decorating the other posts */
+      }
+    }
+  }
+
+  globalThis.__jobMailerDecorate = decorateMenus;
+  decorateMenus();
+  if (!globalThis.__jobMailerMenuBound) {
+    globalThis.__jobMailerMenuBound = true;
+    let timer = 0;
+    const observer = new MutationObserver(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (globalThis.__jobMailerDecorate) globalThis.__jobMailerDecorate();
+      }, 400);
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   globalThis.__jobMailerScan = scanPage;

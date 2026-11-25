@@ -162,7 +162,7 @@ code {
   gap: 6px;
 }
 
-.posts button {
+.posts .post-open {
   width: 100%;
   text-align: left;
   background: #fffdf8;
@@ -170,7 +170,7 @@ code {
   border: 1px solid #e2d9cb;
 }
 
-.posts button[aria-pressed="true"] {
+.posts .post-open[aria-pressed="true"] {
   border-color: #0f5f5c;
   box-shadow: inset 0 0 0 1px #0f5f5c;
 }
